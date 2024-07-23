@@ -60,6 +60,7 @@ h3 archive-pentest {op_id}          # Archive the given {op_id}
 h3 unarchive-pentest {op_id}        # Un-archive the given {op_id}
 h3 delete-pentest {op_id}           # Delete the given {op_id}. This action cannot be un-done.
 h3 pentest-reports [{op_id}]        # Downloads pentest-reports-{op_id}.zip for the given {op_id}, or latest-pentest by default.
+h3 weaknesses-stream {op_id}        # Streams all weaknesses from the given {op_id}.
 h3 clients [{search}]               # List of client accounts this user has access to, optionally filtered by {search}.
 h3 users                            # List of users with access to the current client account.
 h3 op-templates [{op-type}]         # Pentest templates for the current client account.  op-type can be either "NodeZero" (default) or "ExternalAttack".
@@ -67,9 +68,14 @@ h3 op-template {uuid}               # Pentest template with the given uuid.
 h3 asset-groups [{search}]          # List of asset groups in the account, optionally filtered by {search}.
 h3 asset-group {uuid}               # The asset group with the given uuid.
 h3 auth [force]                     # Authenticate to the API.
-h3 gql {graphql-file} [{options}]   # Run the GraphQL request in the given {graphql-file}.
-h3 gql-describe {graphql-file} [{options}]   
+h3 gql {graphql-file} [{vars}]      # Run the GraphQL request in the given {graphql-file}.
+h3 gql-describe {graphql-file} [{vars}]   
                                     # Run the GraphQL request and describe the JSON response structure using jq -rf filters/to_struct.jq
+h3 gql-stream {graphql-file} {array-field} [{vars}]
+                                    # Streams the output from the paginated query in {graphql-file}. 
+                                    # Streaming continues until {array-field} within the response is empty. 
+                                    # NOTE: {graphql-file} must define (and use) the parameter: $page_input: PageInput 
+                                    # NOTE: for a CSV, pipe the output to: jq -rsf \$H3_CLI_HOME/filters/to_csv.jq
 h3 checkenv                         # Run the checkenv script to check for NodeZero compatibility.
 h3 version                          # The h3-cli version.
 h3 upgrade                          # Upgrade h3-cli to the latest version.
@@ -90,6 +96,7 @@ h3 start-runner-service {name} [{log-file}]
 h3 hello-runner {name}              # Sends a hello-world command to the Runner with the assigned {name}.
 h3 stop-runner [{name}]             # Stops the Runner process with the given {name} on the local machine.
                                     # If {name} is not provided, then it stops ALL Runner processes on the local machine.
+h3 runner-services                  # Shows all Runner services registered with systemd on the local machine.
 h3 ps-runner                        # Shows all Runner processes on the local machine.
 h3 tail-runner {name}               # Tail the log for the NodeZero Runner on the local machine with the given {name}.
 h3 delete-runner {name}             # Delete the Runner with the given {name}.  This will NOT stop the Runner if it is still running.
@@ -361,7 +368,7 @@ function cmd_add_profile {
     fi
     profile_file="$H3_CLI_PROFILES_DIR/$profile_name.env"
     if [ ! -e "$profile_file" ]; then 
-        echoerr "Creating h3-cli profile $profile_name under $H3_CLI_PROFILES_DIR ..."
+        echoerr "INFO: Creating h3-cli profile $profile_name under $H3_CLI_PROFILES_DIR ..."
         mkdir -p $H3_CLI_PROFILES_DIR
         cat <<HERE > "$profile_file"
 H3_API_KEY=$api_key
@@ -369,7 +376,7 @@ HERE
         chmod -R 700 $H3_CLI_PROFILES_DIR
     else 
         mv "$profile_file" "$profile_file.bak"
-        echoerr "Updating h3-cli profile $profile_name under $H3_CLI_PROFILES_DIR ..."
+        echoerr "INFO: Updating h3-cli profile $profile_name under $H3_CLI_PROFILES_DIR ..."
         cat "$profile_file.bak" | sed "s/H3_API_KEY=.*/H3_API_KEY=$api_key/" > "$profile_file"
     fi
 }
@@ -384,10 +391,10 @@ function cmd_delete_profile {
     profile_file_bak="$H3_CLI_PROFILES_DIR/$profile_name.env.bak"
     jwt_file="$H3_CLI_PROFILES_DIR/$profile_name.jwt"
     if [ -e "$profile_file" ]; then 
-        echoerr "Deleting h3-cli profile $profile_name under $H3_CLI_PROFILES_DIR ..."
+        echoerr "INFO: Deleting h3-cli profile $profile_name under $H3_CLI_PROFILES_DIR ..."
         rm -f "$profile_file" "$jwt_file" "$profile_file_bak"
     else 
-        echoerr "Profile $profile_name does not exist under $H3_CLI_PROFILES_DIR ..."
+        echoerr "ERROR: Profile $profile_name does not exist under $H3_CLI_PROFILES_DIR ..."
     fi
 }
 
@@ -431,7 +438,7 @@ function cmd_start_agent {
     agent_name=$1
     log_file=$2
     if [ -z "$agent_name" ]; then
-        echoerr "runner_name is required"
+        echoerr "ERROR: runner_name is required"
         return 1
     fi
     if [ -z "$log_file" ]; then
@@ -440,13 +447,16 @@ function cmd_start_agent {
     fi
     pkill_agent "$agent_name"
     # echoerr "Starting NodeZero Runner via: nohup h3-start-agent \"$agent_name\" < /dev/null >> \"$log_file\" 2>&1 &"
-    echoerr "Starting NodeZero Runner $agent_name, logging to $log_file ..."
+    echoerr "INFO: Starting NodeZero Runner $agent_name, logging to $log_file ..."
     # NOTE: this command is dup'ed in h3 and h3-start-agent.
     nohup h3-start-agent "$agent_name" "$log_file" < /dev/null >> "$log_file" 2>&1 &
     rc=$?
     if [ $rc -eq 0 ]; then 
         ps_agent
-        echoerr "Stream the NodeZero Runner logs via: h3 tail-runner \"$agent_name\" "
+        echoerr "INFO: Stream the NodeZero Runner logs via: h3 tail-runner \"$agent_name\" "
+        if is_systemd_running; then 
+            echoerr "INFO: To register the NodeZero Runner with systemd, use: h3 start-runner-service \"$agent_name\" "
+        fi
     fi
     return $rc
 }
@@ -538,6 +548,12 @@ elif [ "$cmd" = "delete-profile" ]; then
 elif [ "$cmd" = "gql" ]; then
     h3-gql $*
 
+elif [ "$cmd" = "gql-stream" ]; then
+    h3-gql-stream $*
+
+elif [ "$cmd" = "gql-resolve-fragments" ]; then
+    h3-gql-resolve-fragments "$@"
+
 elif [ "$cmd" = "pentests" ]; then
     cmd_pentests $*
 
@@ -584,7 +600,7 @@ elif [ "$cmd" = "pentest-reports" ]; then
     h3-pentest-reports $*
 
 elif [ "$cmd" = "checkenv" ]; then
-    curl -x "$H3_CLI_PROXY_URL" https://h3ai-web.s3.amazonaws.com/checkenv.sh | bash
+    curl -x "$H3_CLI_PROXY_URL" https://downloads.horizon3ai.com/utilities/checkenv.sh | bash
 
 elif [ "$cmd" = "clients" -o "$cmd" = "accounts" -o "$cmd" = "client-accounts" ]; then
     cmd_client_accounts $*
@@ -616,6 +632,10 @@ elif [ "$cmd" = "start-runner-service" ]; then
 elif [ "$cmd" = "ps-agent" -o "$cmd" = "ps-runner" ]; then
     source h3-utils
     ps_agent
+
+elif [ "$cmd" = "runner-services" ]; then
+    source h3-utils
+    runner_services
 
 elif [ "$cmd" = "hello-agent" -o "$cmd" = "hello-runner" ]; then
     cmd_hello_agent $*
@@ -701,6 +721,13 @@ elif [ "$cmd" = "auto-injected-credentials" ]; then
     rc=$?
     if [ $rc -eq 0 ]; then cat <<<$res | jq '.data.auto_injected_credentials[]'
     else echo "$res"; fi
+
+elif [ "$cmd" = "weaknesses-stream" ]; then
+    source h3-env
+    json_params=`build_op_id_args $1`
+    rc=$?
+    if [ $rc -ne 0 ]; then exit $rc; fi
+    h3-gql-stream weaknesses .data.weaknesses_page.weaknesses "$json_params"
 
 else 
     echoerr "ERROR: unrecognized command: \"$cmd\".  Run \"h3 help\" for usage info."

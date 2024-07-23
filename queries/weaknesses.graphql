@@ -1,0 +1,37 @@
+query q(
+    $op_id:String!
+    $page_input:PageInput = {}
+) {
+    weaknesses_count(input: {op_id: $op_id}, page_input:$page_input)
+    weaknesses_page(input: {op_id: $op_id}, page_input: $page_input) {
+        weaknesses {
+            ...WeaknessFragment
+        }
+    }
+}
+
+fragment WeaknessFragment on Weakness {
+    uuid
+    base_score
+    context_score
+    downstream_impact_types_and_counts
+    has_proof
+    host_name
+    impact_paths_count
+    ip
+    lacks_proof_failure_code
+    lacks_proof_reason
+    affected_asset_text
+    affected_asset_short_text
+    op_id
+    score
+    severity
+    time_to_finding_hms
+    time_to_finding_s
+    vuln_category
+    vuln_id
+    vuln_name
+    vuln_aliases
+    vuln_cisa_kev
+    vuln_known_ransomware_campaign_use
+}

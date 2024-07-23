@@ -74,7 +74,12 @@ function ensure_H3_CLI_LOGGING_DIR {
 
 function ensure_H3_CLI_HOME {
     if [ -z "$H3_CLI_HOME" ]; then
-        H3_CLI_HOME=`dirname $(dirname $(which h3))`
+        d=`dirname $(which h3)`
+        if [ "$d" = "." ]; then 
+            H3_CLI_HOME=".."
+        else 
+            H3_CLI_HOME=`dirname "$d"`
+        fi
         if [ -z "$H3_CLI_HOME" ]; then
             echoerr "H3_CLI_HOME environment variable required.  Must be set to the full path of the h3-cli directory."
             exit 1
@@ -146,7 +151,7 @@ function ensure_H3_CLI_GQL_PATH {
 
     if [ -z "$H3_CLI_GQL_PATH" ]; then
         H3_CLI_GQL_PATH=$prepend_gql_path
-    else
+    elif [[ "$H3_CLI_GQL_PATH" != *"$prepend_gql_path"* ]]; then
         H3_CLI_GQL_PATH="$prepend_gql_path:$H3_CLI_GQL_PATH"
     fi
 }
@@ -171,6 +176,15 @@ function was_launched_by_systemd {
         return 0
     else
         return 1
+    fi
+}
+
+function runner_services {
+    if is_systemd_running; then 
+        echo systemctl status 'nodezero-runner*'
+        systemctl status 'nodezero-runner*'
+    else 
+        echoerr "ERROR: systemd does not appear to be running"
     fi
 }
 
@@ -223,3 +237,56 @@ function slugify {
     s=$1
     sed -E 's/[^a-zA-Z0-9-]+/-/g' <<<"$s"
 }
+
+# $1: the graphql query file basename
+# finds the graphql query file on the path (H3_CLI_GQL_PATH)
+# @returns the file name
+function find_query_file {
+    f=$1
+    echolog "searching for GQL file $f in H3_CLI_GQL_PATH=$H3_CLI_GQL_PATH ..."
+    if [[ $f == *"/"* ]]; then
+        if [ -e "$f" ]; then
+            echo $f 
+            return
+        fi
+        echoerr "ERROR: file not found: $f"
+        exit 1
+    fi
+    prev_IFS=$IFS 
+    IFS=:
+    dirs=($H3_CLI_GQL_PATH)
+    IFS=$prev_IFS
+    # the find command searches all subdirs as well, which isn't what we want 
+    # (and can take a while)
+    # find "${dirs[@]}" -depth 0 -name "$f" -o -name "$f.graphql"
+    for d in "${dirs[@]}"; do
+        if [ -e "$d/$f" ]; then
+            echo "$d/$f"
+            return
+        fi
+        if [ -e "$d/$f.graphql" ]; then
+            echo "$d/$f.graphql"
+            return
+        fi
+    done
+    echoerr "ERROR: file not found; searching for $f in H3_CLI_GQL_PATH=$H3_CLI_GQL_PATH"
+    exit 1
+}
+
+# NOTE: wrap parameters in "" to avoid inadvertant shell expansion of asterisks '*'
+function combine_json {
+    echo "$*" | jq -s add
+}
+
+
+function build_op_id_args {
+    op_id=$1
+    if [ -z "$op_id" ]; then 
+        echoerr "ERROR: op_id is required"
+        exit 1
+    fi
+    cat <<HERE
+{"op_id":"$op_id"}
+HERE
+}
+
