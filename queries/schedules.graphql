@@ -5,6 +5,7 @@ query {
 }
  
 fragment ScheduleFragment on Schedule {
+    uuid
     name
     state
     created_at

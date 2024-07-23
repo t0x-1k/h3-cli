@@ -36,7 +36,7 @@ Use the h3-cli command `h3 create-auto-injected-credential` to create an auto-in
 ```shell
 $ h3 create-auto-injected-credential 
 Please provide JSON input on a single line:
-{"key_type":"cleartext", "user":"MYDOMAIN\myuser", "cleartext":"mypassword"}
+{"key_type":"cleartext", "user":"myuser", "cleartext":"mypassword"}
 ```
 
 > ❗ If you see errors like `h3: command not found`, try adding the `h3-cli/bin` directory to your `PATH`, 
@@ -48,7 +48,7 @@ including the credential parameter, will be recorded in your bash history.
 There are several types of credentials you can create. Each type requires different parameters. Some examples are:
 
 ```shell
-{"key_type":"cleartext", "user":"MYDOMAIN\myuser", "cleartext":"mypassword"}
+{"key_type":"cleartext", "user":"myuser", "cleartext":"mypassword"}
 {"key_type":"cleartext", "user":"myuser", "cleartext":"mypassword", "ip":"192.168.1.2"}
 {"key_type":"ntlm_hash", "user":"myuser", "hash":"myhash"}
 {"key_type":"ntlm_hash", "user":"myuser", "hash":"myhash", "ip":"192.168.1.3"}

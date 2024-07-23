@@ -1,0 +1,68 @@
+#!/bin/bash
+#
+# Given a graphql query file and a search path (H3_CLI_GQL_PATH) containing *Fragment.graphql files, 
+# resolve all unersolved Fragments in the graphql query by importing them from their respective 
+# *Fragment.graphql file.
+#
+# Fragments can be defined in their own file, named {fragment-name}.graphql.
+# Those Fragments can then be referenced from a graphql query file in the usual way
+# using the spread operator, ie: "...{fragment-name}".
+#
+# Fragments can also be defined directly in the graphql query file. This effectively overrides
+# the *Fragment.graphql file, if one is defined.  This script will only resolve Fragments that are 
+# not already defined in the query file.
+# 
+
+source h3-env
+
+
+# find all spread fragments
+# subtract already-defined fragments 
+# :returns: the remaining set of fragments.  These are the unresolved fragments that need to be imported.
+function find_unresolved_fragments {
+    query_file=$1
+    tmp=$H3_CLI_LOGGING_DIR
+    spreads_file="$tmp/.resolve_fragments_spreads.txt"
+    defineds_file="$tmp/.resolve_fragments_defineds.txt"
+    grep -e '[.]\{3\}\S*Fragment' "$query_file" | sed 's/.*[.][.][.]\(.*Fragment\).*/\1/' | sort | uniq > "$spreads_file"
+    grep -e 'fragment \S*Fragment' "$query_file" | sed 's/.*fragment \(.*Fragment\) on.*/\1/g' | sort | uniq > "$defineds_file"
+    comm -23 "$spreads_file" "$defineds_file"
+}
+
+
+# 0.
+# read graphql query file
+ff=`find_query_file $1`
+if [ -z "$ff" ]; then
+    exit 1
+fi
+ 
+tmp=$H3_CLI_LOGGING_DIR
+full_query_file="$tmp/.resolve_fragments_full_query.txt"
+
+# 1.
+# create tmp file, remove comments
+cat -- $ff | sed 's/^ *#.*//' > $full_query_file
+
+# 2. 
+# recursively resolve fragments
+fragments=`find_unresolved_fragments "$full_query_file"`
+while [ -n "$fragments" ]; do
+    # 3.
+    for x in $fragments; do
+        echo "" >> $full_query_file
+        echo "" >> $full_query_file
+        fragment_file=`find_query_file $x.graphql`
+        if [ -z "$fragment_file" ]; then 
+            echoerr "ERROR: could not find fragment $x"
+            exit 1
+        fi
+        cat -- $fragment_file | sed 's/^ *#.*//' >> $full_query_file
+    done
+    fragments=`find_unresolved_fragments "$full_query_file"`
+done
+
+# 4.
+# print the final query
+cat $full_query_file
+

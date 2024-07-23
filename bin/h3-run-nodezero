@@ -27,6 +27,11 @@ if [ -z "$op_id" ]; then
     op_id=`cat <<<$pentest | jq -r .op_id`
 fi
  
+# check optional docker prune setting
+if [ -n "$H3_CLI_DOCKER_PRUNE" ]; then 
+    echoerr "INFO: docker system prune -a -f"
+    sudo docker system prune -a -f
+fi
 
 # 2.
 # fetch the nodezero_script_url and run it.

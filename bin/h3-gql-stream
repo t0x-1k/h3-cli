@@ -1,0 +1,80 @@
+#!/bin/bash
+#
+# Streams paginated GQL output.
+#
+# usage:
+# h3-gql-stream weaknesses.graphql .data.weaknesses_page.weaknesses '{"op_id":"66063d2b-1766-406c-8dd0-e1b9da1099f7"}'
+#
+# for a CSV:
+# h3-gql-stream weaknesses.graphql .data.weaknesses_page.weaknesses '{"op_id":"66063d2b-1766-406c-8dd0-e1b9da1099f7"}' | jq -rsf $H3_CLI_HOME/filters/to_csv.jq
+#
+# NOTE: the graphql query file must define $page_input: PageInput  as a parameter.
+# 
+
+
+source h3-env
+
+
+function build_page_input_args {
+    page_num=$1
+    cat <<HERE
+{
+    "page_input":{
+        "page_num": $page_num,
+        "page_size": 20
+    }
+}
+HERE
+}
+
+# 1.
+# parse args
+
+# the graphql query file.
+# the file must take a page_input arg.
+query_file="$1"
+
+# the path to the array result within the query.
+# the script stops paginating once the array result is empty.
+p="$2"
+if [[ "$p" != "."* ]]; then 
+    p=".$p"
+fi
+if [[ "$p" != ".data"* ]]; then 
+    p=".data$p"
+fi
+
+# additional args for the graphql query.
+args="$3"
+
+
+# 2.
+# read page by page until we get back an empty result 
+page_num=1
+while [ $page_num -lt 100 ]; do 
+
+    # add page_input arg
+    page_input_args=`build_page_input_args $page_num`
+    json_params=`combine_json "$args" "$page_input_args"`
+
+    # run the query
+    res=`h3-gql "$query_file" "$json_params"`
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        echoerr "API request failed: rc=$rc, res=$res"
+        exit $rc
+    fi
+
+    # check if result is empty
+    r=`cat <<<$res | jq -r $p | jq -e '. == []'`
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        echolog "array is empty; rc=$rc"
+        break
+    fi
+
+    # stream the results, loop.
+    cat <<<$res | jq -r $p[]
+    page_num=$((page_num + 1))
+
+done

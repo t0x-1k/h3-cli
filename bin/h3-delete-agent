@@ -32,3 +32,18 @@ else
     exit $rc
 fi
 
+
+# Remove runner service
+# https://serverfault.com/questions/1052655/what-is-the-canonical-method-for-removing-a-unit-service-file-from-systemd
+if is_systemd_running; then
+    service_name="nodezero-runner-$agent_name.service"
+    sudo systemctl stop $service_name
+    sudo systemctl disable $service_name &> /dev/null
+
+    # Cleanup artifacts (/etc/systemd/system/nodezero-runner-<name>.service and .service.d files)
+    runner_service="/etc/systemd/system/$service_name"
+    sudo rm -rf "${runner_service}"* &> /dev/null  # if files already dont exists we dont need error printed
+
+    # Updates systemctl with existing services. runner service is forgotten
+    sudo systemctl daemon-reload
+fi
